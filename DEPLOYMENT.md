@@ -1,8 +1,11 @@
 # GitHub Actions deployment to Amazon EKS
 
-The workflow at `.github/workflows/deploy-eks.yml` builds the Docker image, pushes it to Amazon ECR, and deploys it with Helm. A push to `main` deploys to `dev`; use **Actions > Build and deploy to EKS > Run workflow** to choose `dev`, `qa`, or `prod` manually.
+The workflow at `.github/workflows/build-deploy-eks.yml` contains both jobs, with separate triggers:
 
-The workflow first runs `./mvnw -B package`; the Dockerfile then copies that JAR into the Java runtime image. To build the image locally, run:
+- A push to `main`, `develop`, or `feature/**` runs only the build job. It publishes one image per commit to a shared Amazon ECR repository, tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
+- Use **Actions > Build and deploy to EKS > Run workflow** to run only the deploy job. Choose `dev`, `qa`, or `prod`, then enter the full 40-character commit SHA produced by a build.
+
+The build job runs `./mvnw -B package`; the Dockerfile copies that JAR into the Java runtime image. To build the image locally, run:
 
 ```bash
 ./mvnw -B package
@@ -11,24 +14,31 @@ docker build -t springwebpage:local .
 
 ## GitHub setup
 
-Create GitHub Environments named `dev`, `qa`, and `prod` in the repository settings. Add these **environment variables** to each environment:
+Create GitHub Environments named `build`, `dev`, `qa`, and `prod` in the repository settings.
 
-| Variable | Value |
+Add these **repository variables**. `IMAGE_REPOSITORY` is the full ECR repository URI without a tag, for example `123456789012.dkr.ecr.us-east-1.amazonaws.com/springwebpage`. The same ECR repository must be used for every deployment environment.
+
+| Repository variable | Value |
 | --- | --- |
-| `AWS_REGION` | AWS region containing the ECR repository and EKS cluster |
-| `AWS_ROLE_ARN` | ARN of the IAM role GitHub Actions assumes using OIDC |
-| `EKS_CLUSTER_NAME` | EKS cluster name for this environment |
-| `ECR_REPOSITORY` | Existing ECR repository name (not its full URI) |
+| `IMAGE_REPOSITORY` | Shared ECR repository URI, without an image tag |
+| `IMAGE_AWS_REGION` | AWS region containing the shared ECR repository |
 
-The values can differ per environment. Configure required reviewers for `prod` in its GitHub Environment settings if production deployments need approval.
+Add `AWS_ROLE_ARN` as an **environment variable** in the `build` environment and in each of `dev`, `qa`, and `prod`. The build environment role is used only to push images; each deployment environment role is used only to access its EKS cluster. Add these additional environment variables to `dev`, `qa`, and `prod`:
+
+| Environment variable | Value |
+| --- | --- |
+| `AWS_REGION` | AWS region containing this environment's EKS cluster |
+| `EKS_CLUSTER_NAME` | EKS cluster name for this environment |
+
+The EKS region and cluster can differ per environment. Configure required reviewers for `prod` in its GitHub Environment settings if production deployments need approval.
 
 ## AWS setup
 
-Configure the AWS IAM OIDC provider for `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`. Each environment's `AWS_ROLE_ARN` must trust this GitHub repository's environment subject, for example `repo:OWNER/REPOSITORY:environment:dev` (and corresponding `qa` and `prod` subjects). Replace `OWNER/REPOSITORY` with the GitHub repository path.
+Configure the AWS IAM OIDC provider for `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`. The build role must trust this GitHub repository's environment subject `repo:OWNER/REPOSITORY:environment:build`; each deployment role must trust the corresponding `dev`, `qa`, or `prod` environment subject. Replace `OWNER/REPOSITORY` with the GitHub repository path.
 
-The assumed role needs permission to authenticate to ECR and push to the configured repository, and permission to describe the configured EKS cluster. The role must also be granted Kubernetes access to the target namespaces through an EKS access entry or the cluster's existing access configuration; AWS IAM permissions alone do not grant Helm access to the cluster. Limit that Kubernetes access to the deployment namespaces where possible.
+The build role needs permission to authenticate to ECR, push images, and call `ecr:DescribeImages` on the shared repository. Each deployment role needs permission to describe its EKS cluster. The role must also be granted Kubernetes access to the target namespaces through an EKS access entry or the cluster's existing access configuration; AWS IAM permissions alone do not grant Helm access to the cluster. Ensure the EKS worker nodes can pull images from the shared ECR repository. Limit Kubernetes deployment access to the target namespaces where possible.
 
-Create the ECR repository before running the workflow. The workflow tags each image with the full Git commit SHA and deploys that exact tag. The chart's `values-dev.yaml`, `values-qa.yaml`, and `values-prod.yaml` files are intentionally empty override points.
+Create the ECR repository before running the build workflow and enable tag immutability. The chart's `values-dev.yaml`, `values-qa.yaml`, and `values-prod.yaml` files are intentionally empty override points.
 
 ## Production credential warning
 

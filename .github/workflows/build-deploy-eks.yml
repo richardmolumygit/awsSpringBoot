@@ -1,0 +1,165 @@
+name: Build and deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/**
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      image_tag:
+        description: Full commit SHA of the image to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    name: Build and publish image
+    runs-on: ubuntu-latest
+    environment:
+      name: build
+    env:
+      AWS_REGION: ${{ vars.IMAGE_AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate build settings
+        shell: bash
+        run: |
+          for variable in AWS_REGION AWS_ROLE_ARN IMAGE_REPOSITORY; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Configure $variable in the build environment or repository variables."
+              exit 1
+            fi
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build JAR
+        run: ./mvnw -B package
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Check whether image already exists
+        id: existing
+        shell: bash
+        run: |
+          repository_name="${IMAGE_REPOSITORY#*/}"
+          if error="$(aws ecr describe-images \
+            --repository-name "$repository_name" \
+            --image-ids "imageTag=${IMAGE_TAG}" \
+            --region "$AWS_REGION" 2>&1 >/dev/null)"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$error" == *ImageNotFoundException* ]]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$error"
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          docker buildx build \
+            --tag "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+            --push \
+            .
+
+      - name: Report image
+        run: echo "Image available at ${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    name: Deploy to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.target_environment }}
+    env:
+      DEPLOY_ENV: ${{ inputs.target_environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+      - name: Check out deployment configuration
+        uses: actions/checkout@v4
+
+      - name: Validate environment settings
+        shell: bash
+        run: |
+          for variable in AWS_REGION AWS_ROLE_ARN EKS_CLUSTER_NAME IMAGE_REPOSITORY IMAGE_TAG; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Configure $variable for the $DEPLOY_ENV environment or repository."
+              exit 1
+            fi
+          done
+
+          if [[ ! "$IMAGE_TAG" =~ ^[[:xdigit:]]{40}$ ]]; then
+            echo "::error::IMAGE_TAG must be a full 40-character commit SHA."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure EKS access
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Deploy with Helm
+        shell: bash
+        run: |
+          helm upgrade --install springwebpage ./helm/springwebpage \
+            --namespace "$DEPLOY_ENV" \
+            --create-namespace \
+            --values "./helm/springwebpage/values-${DEPLOY_ENV}.yaml" \
+            --set-string "image.repository=${IMAGE_REPOSITORY}" \
+            --set-string "image.tag=${IMAGE_TAG}" \
+            --atomic \
+            --wait \
+            --timeout 5m
