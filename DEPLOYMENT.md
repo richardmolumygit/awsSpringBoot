@@ -1,9 +1,10 @@
 # GitHub Actions deployment to Amazon EKS
 
-The workflow at `.github/workflows/build-deploy-eks.yml` contains both jobs, with separate triggers:
+The workflow at `.github/workflows/build-deploy-eks.yml` builds and then deploys on every run:
 
-- A push to `main`, `develop`, or `feature/**` runs only the build job. It publishes one image per commit to a shared Amazon ECR repository, tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
-- Use **Actions > Build and deploy to EKS > Run workflow** to run only the deploy job. Choose `dev`, `qa`, or `prod`, then enter the full 40-character commit SHA produced by a build.
+- A push to `main`, `develop`, or `feature/**` builds the image and deploys it to `dev`.
+- Use **Actions > Build and deploy to EKS > Run workflow** to build the selected branch's current commit, then deploy that same image to `dev`, `qa`, or `prod`.
+- Images are tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
 
 The build job runs `./mvnw -B package`; the Dockerfile copies that JAR into the Java runtime image. To build the image locally, run:
 
