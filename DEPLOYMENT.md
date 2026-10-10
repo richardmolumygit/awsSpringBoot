@@ -3,7 +3,8 @@
 The workflow at `.github/workflows/build-deploy-eks.yml` builds and then deploys on every run:
 
 - A push to `main`, `develop`, or `feature/**` builds the image and deploys it to `dev`.
-- Use **Actions > Build and deploy to EKS > Run workflow** to build the selected branch's current commit, then deploy that same image to `dev`, `qa`, or `prod`.
+- Use **Actions > Build and deploy to EKS > Run workflow** and select `build-and-deploy` to build the selected branch's current commit, then deploy it to `dev`, `qa`, or `prod`.
+- Select `deploy-only` to deploy an existing image without rebuilding. Enter its full 40-character commit SHA in `image_tag`.
 - Images are tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
 
 The `dev` Service uses an internet-facing AWS load balancer. After deployment, wait for its hostname with `kubectl get svc springwebpage -n dev`; open `http://<EXTERNAL-IP>` in a browser. This requires AWS load-balancer provisioning and public subnets in the EKS cluster. `qa` and `prod` remain `ClusterIP` unless overridden.
