@@ -6,6 +6,8 @@ The workflow at `.github/workflows/build-deploy-eks.yml` builds and then deploys
 - Use **Actions > Build and deploy to EKS > Run workflow** to build the selected branch's current commit, then deploy that same image to `dev`, `qa`, or `prod`.
 - Images are tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
 
+The `dev` Service uses an internet-facing AWS load balancer. After deployment, wait for its hostname with `kubectl get svc springwebpage -n dev`; open `http://<EXTERNAL-IP>` in a browser. This requires AWS load-balancer provisioning and public subnets in the EKS cluster. `qa` and `prod` remain `ClusterIP` unless overridden.
+
 The build job runs `./mvnw -B package`; the Dockerfile copies that JAR into the Java runtime image. To build the image locally, run:
 
 ```bash
@@ -43,4 +45,4 @@ Create the ECR repository before running the build workflow and enable tag immut
 
 ## Production credential warning
 
-`src/main/resources/application.properties` currently contains the literal Spring Security credentials `admin` and `password`. Replace these with secret-backed configuration before deploying to a production environment.
+`src/main/resources/application.properties` currently contains the literal Spring Security credentials `admin` and `password`. Replace these with secret-backed configuration before exposing the application publicly or deploying to a production environment.
