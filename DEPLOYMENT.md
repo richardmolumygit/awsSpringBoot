@@ -7,7 +7,7 @@ The workflow at `.github/workflows/build-deploy-eks.yml` builds and then deploys
 - Select `deploy-only` to deploy an existing image without rebuilding. Enter its full 40-character commit SHA in `image_tag`.
 - Images are tagged with the full commit SHA. Re-running a build skips publishing if that SHA already exists.
 
-The `dev` Service uses an internet-facing AWS load balancer. After deployment, wait for its hostname with `kubectl get svc springwebpage -n dev`; open `http://<EXTERNAL-IP>` in a browser. This requires AWS load-balancer provisioning and public subnets in the EKS cluster. `qa` and `prod` remain `ClusterIP` unless overridden.
+The chart uses a `ClusterIP` Service behind the AWS Load Balancer Controller. To expose `dev` securely, set `ingress.enabled: true`, `ingress.hostname` to a DNS name, and `ingress.certificateArn` to an issued ACM certificate ARN in the cluster's AWS region in `helm/springwebpage/values-dev.yaml`. The Ingress creates an internet-facing ALB, redirects HTTP to HTTPS, and routes to the application Service. Until a hostname and certificate are configured, the Ingress remains disabled and the app is not publicly reachable. After enabling it, get the ALB address with `kubectl get ingress springwebpage -n dev` and point the DNS name to that address. `qa` and `prod` remain private unless configured separately.
 
 The build job runs `./mvnw -B package`; the Dockerfile copies that JAR into the Java runtime image. To build the image locally, run:
 
@@ -42,7 +42,7 @@ Configure the AWS IAM OIDC provider for `https://token.actions.githubusercontent
 
 The build role needs permission to authenticate to ECR, push images, and call `ecr:DescribeImages` on the shared repository. Each deployment role needs permission to describe its EKS cluster. The role must also be granted Kubernetes access to the target namespaces through an EKS access entry or the cluster's existing access configuration; AWS IAM permissions alone do not grant Helm access to the cluster. Ensure the EKS worker nodes can pull images from the shared ECR repository. Limit Kubernetes deployment access to the target namespaces where possible.
 
-Create the ECR repository before running the build workflow and enable tag immutability. The chart's `values-dev.yaml`, `values-qa.yaml`, and `values-prod.yaml` files are intentionally empty override points.
+Create the ECR repository before running the build workflow and enable tag immutability. The environment-specific values files hold deployment overrides; set the `dev` Ingress hostname and ACM certificate ARN before enabling public HTTPS access.
 
 ## Production credential warning
 
