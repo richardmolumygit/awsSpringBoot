@@ -2,6 +2,6 @@ service:
   type: ClusterIP
 
 ingress:
-  enabled: true
+  enabled: false
   hostname: "app.sugarshacktreats.com"
   certificateArn: ""
