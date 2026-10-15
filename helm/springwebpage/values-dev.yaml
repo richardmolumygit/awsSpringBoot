@@ -2,6 +2,12 @@ service:
   type: ClusterIP
 
 ingress:
-  enabled: false
+  enabled: true
   hostname: "app.sugarshacktreats.com"
-  certificateArn: ""
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/create-acm-cert: "true"
+    external-dns.kubernetes.io/hostname: "app.sugarshacktreats.com"

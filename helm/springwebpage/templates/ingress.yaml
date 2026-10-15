@@ -9,9 +9,11 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    alb.ingress.kubernetes.io/certificate-arn: {{ required "ingress.certificateArn is required when ingress is enabled" .Values.ingress.certificateArn | quote }}
 spec:
   ingressClassName: alb
+  tls:
+    - hosts:
+        - {{ required "ingress.hostname is required when ingress is enabled" .Values.ingress.hostname | quote }}
   rules:
     - host: {{ required "ingress.hostname is required when ingress is enabled" .Values.ingress.hostname | quote }}
       http:

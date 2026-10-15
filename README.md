@@ -1,6 +1,7 @@
 # springWebPage
 
-
+To make this available from the Kubernetes Cluster
+1. Request a public certificate for app.sugarshacktreats.com
 
 ## Getting started
 
